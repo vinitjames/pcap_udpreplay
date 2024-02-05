@@ -30,8 +30,7 @@ struct PCAPUDPReader::PCAPHandle {
 };
 
 PCAPUDPReader::PCAPUDPReader(const std::string& filename)
-    : _error_buff{std::vector<char>(PCAP_ERRBUF_SIZE)},
-      _pcap_handle{new PCAPHandle(filename)} {}
+    : _pcap_handle{new PCAPHandle(filename)} {}
 
 bool PCAPUDPReader::read_next() {
   struct pcap_pkthdr pkt_hdr;
@@ -98,7 +97,7 @@ bool PCAPUDPReader::_parse_ip4_pkt(const u_char* payload) {
 bool PCAPUDPReader::_parse_ip6_pkt(const u_char* payload) {
   const struct ip6_hdr* ipv6_header =
       reinterpret_cast<const struct ip6_hdr*>(payload);
-  if (ipv6_header->ip6_vfc != 6) {
+  if ((ipv6_header->ip6_vfc & 0xF0) != 0x60) {
     std::cout << "IP Version in header is not IPV6";
     return false;
   }
@@ -119,4 +118,4 @@ bool PCAPUDPReader::_parse_udp_pkt(const u_char* payload) {
   return true;
 }
 
-PCAPUDPReader::~PCAPUDPReader(){};
+PCAPUDPReader::~PCAPUDPReader() { delete _pcap_handle; }

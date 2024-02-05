@@ -32,9 +32,8 @@ class PCAPUDPReader {
   timespec start_pkt_timestamp() const;
 
  private:
-  std::vector<char> _error_buff;
   struct PCAPHandle;
-  std::unique_ptr<PCAPHandle> _pcap_handle = nullptr;
+  PCAPHandle* _pcap_handle = nullptr;
   const u_char* _udp_payload = nullptr;
   UDPHeader _udp_header;
   IP_VERSION _curr_frame_type;
