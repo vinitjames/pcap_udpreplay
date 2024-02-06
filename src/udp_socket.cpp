@@ -3,6 +3,7 @@
 #include <net/if.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 #include <iostream>
 #include <stdexcept>
@@ -49,6 +50,7 @@ bool UDPSocket::set_iface(const std::string& interface) {
   }
   return true;
 }
+
 bool UDPSocket::enable_loopback() {
   int enable = 1;
   int sk_opt_ret;
@@ -79,3 +81,7 @@ bool UDPSocket::enable_broadcast() {
 }
 
 IP_VERSION UDPSocket::ip_version() const { return _ip_ver; }
+
+int UDPSocket::get_sock_fd() { return _sock_fd; }
+
+UDPSocket::~UDPSocket() { close(_sock_fd); }

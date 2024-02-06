@@ -1,5 +1,6 @@
 #include "pcap_reader.h"
 
+#include <arpa/inet.h>
 #include <net/ethernet.h>
 #include <netinet/ip.h>
 #include <netinet/ip6.h>
@@ -30,43 +31,50 @@ struct PCAPUDPReader::PCAPHandle {
 };
 
 PCAPUDPReader::PCAPUDPReader(const std::string& filename)
-    : _pcap_handle{new PCAPHandle(filename)} {}
+    : _pcap_handle{new PCAPHandle(filename)} {
+  _src_ip.resize(INET6_ADDRSTRLEN + 1, '\0');
+  _dst_ip.resize(INET6_ADDRSTRLEN + 1, '\0');
+}
 
 bool PCAPUDPReader::read_next() {
-  struct pcap_pkthdr pkt_hdr;
-  const u_char* _payload_handle =
-      pcap_next(_pcap_handle->get_handle(), &pkt_hdr);
-  if (_payload_handle == nullptr) {
-    std::cout << " could not read next packet from pcap file";
-    return false;
+  bool udp_pkt_read = false;
+  while (!udp_pkt_read) {
+    struct pcap_pkthdr pkt_hdr;
+    const u_char* pcap_payload =
+        pcap_next(_pcap_handle->get_handle(), &pkt_hdr);
+    if (pcap_payload == nullptr) {
+      std::cout << " could not read next packet from pcap file" << std::endl;
+      break;
+    }
+    if (_start_pkt_ts.tv_nsec == -1) {
+      _start_pkt_ts.tv_sec = pkt_hdr.ts.tv_sec;
+      _start_pkt_ts.tv_nsec = pkt_hdr.ts.tv_usec;
+    }
+    _curr_pkt_ts.tv_sec = pkt_hdr.ts.tv_sec;
+    _curr_pkt_ts.tv_nsec = pkt_hdr.ts.tv_usec;
+    if (pkt_hdr.len != pkt_hdr.caplen) {
+      std::cout << "Pcap packet captured length not equal to actual length"
+                << std::endl;
+      continue;
+    }
+    udp_pkt_read = _parse_pcap_payload(pcap_payload);
   }
+  return udp_pkt_read;
+}
 
-  if (_start_pkt_ts.tv_nsec == -1) {
-    _start_pkt_ts.tv_sec = pkt_hdr.ts.tv_sec;
-    _start_pkt_ts.tv_nsec = pkt_hdr.ts.tv_usec;
-  }
-  _curr_pkt_ts.tv_sec = pkt_hdr.ts.tv_sec;
-  _curr_pkt_ts.tv_nsec = pkt_hdr.ts.tv_usec;
-  if (pkt_hdr.len != pkt_hdr.caplen) {
-    std::cout << "Pcap packet captured length not equal to actual length"
-              << std::endl;
-    return false;
-  }
-
-  const ether_header* eth_hdr =
-      reinterpret_cast<const ether_header*>(_payload_handle);
+bool PCAPUDPReader::_parse_pcap_payload(const u_char* payload) {
+  const ether_header* eth_hdr = reinterpret_cast<const ether_header*>(payload);
   switch (ntohs(eth_hdr->ether_type)) {
     case ETHERTYPE_IP:
       _curr_frame_type = IP_VERSION::IPV4;
-      return _parse_ip4_pkt(_payload_handle + sizeof(ether_header));
+      return _parse_ip4_pkt(payload + sizeof(ether_header));
 
     case ETHERTYPE_IPV6:
       _curr_frame_type = IP_VERSION::IPV6;
-      return _parse_ip6_pkt(_payload_handle + sizeof(ether_header));
+      return _parse_ip6_pkt(payload + sizeof(ether_header));
     default:
       std::cout << "Packet type not ipv4 or ipv6" << std::endl;
-      _curr_frame_type = IP_VERSION::NOT_IP;
-      _payload_handle = nullptr;
+      _udp_payload = nullptr;
       return false;
   }
 }
@@ -85,12 +93,25 @@ bool PCAPUDPReader::_parse_ip4_pkt(const u_char* payload) {
   const struct ip* ipv4_header = reinterpret_cast<const struct ip*>(payload);
   if (ipv4_header->ip_v != 4) {
     std::cout << "IP Version in header is not IPV4";
+    _udp_payload = nullptr;
     return false;
   }
   if (ipv4_header->ip_p != IPPROTO_UDP) {
     std::cout << "Packet payload not of type UDP";
+    _udp_payload = nullptr;
     return false;
   }
+  char ip4_addr[INET_ADDRSTRLEN];
+  if (inet_ntop(AF_INET, &(ipv4_header->ip_src), ip4_addr, INET_ADDRSTRLEN) ==
+      nullptr) {
+    std::cout << "Could not convert ipv4 source address" << std::endl;
+  }
+  _src_ip = ip4_addr;
+  if (inet_ntop(AF_INET, &(ipv4_header->ip_dst), ip4_addr, INET_ADDRSTRLEN) ==
+      nullptr) {
+    std::cout << "Could not convert ipv6 destination address" << std::endl;
+  }
+  _dst_ip = ip4_addr;
   return _parse_udp_pkt(payload + ipv4_header->ip_hl * 4);
 }
 
@@ -99,23 +120,36 @@ bool PCAPUDPReader::_parse_ip6_pkt(const u_char* payload) {
       reinterpret_cast<const struct ip6_hdr*>(payload);
   if ((ipv6_header->ip6_vfc & 0xF0) != 0x60) {
     std::cout << "IP Version in header is not IPV6";
+    _udp_payload = nullptr;
     return false;
   }
   if (ipv6_header->ip6_nxt != IPPROTO_UDP) {
     std::cout << "Packet payload not of type UDP";
+    _udp_payload = nullptr;
     return false;
   }
+  char ip6_addr[INET6_ADDRSTRLEN];
+  if (inet_ntop(AF_INET6, &(ipv6_header->ip6_src), ip6_addr,
+                INET6_ADDRSTRLEN) == nullptr) {
+    std::cout << "Could not convert ipv4 source address" << std::endl;
+  }
+  _src_ip = ip6_addr;
+  if (inet_ntop(AF_INET6, &(ipv6_header->ip6_dst), ip6_addr,
+                INET6_ADDRSTRLEN) == nullptr) {
+    std::cout << "Could not convert ipv6 destination address" << std::endl;
+  }
+  _dst_ip = ip6_addr;
   return _parse_udp_pkt(payload + sizeof(ip6_hdr));
 }
 
 bool PCAPUDPReader::_parse_udp_pkt(const u_char* payload) {
-  if (payload == nullptr) {
-    return false;
-  }
   const udphdr* udp_hdr = reinterpret_cast<const udphdr*>(payload);
   _udp_header = {udp_hdr->source, udp_hdr->dest, udp_hdr->len, udp_hdr->check};
   _udp_payload = payload + sizeof(udphdr);
   return true;
 }
+
+std::string PCAPUDPReader::src_ip() const { return _src_ip; }
+std::string PCAPUDPReader::dst_ip() const { return _dst_ip; }
 
 PCAPUDPReader::~PCAPUDPReader() { delete _pcap_handle; }

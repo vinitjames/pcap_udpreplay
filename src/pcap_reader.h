@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-enum class IP_VERSION { IPV4, IPV6, NOT_IP };
+#include "ip_version.h"
 
 struct UDPHeader {
   uint16_t src_port;  // all values in network byte order
@@ -30,6 +30,8 @@ class PCAPUDPReader {
   const u_char* udp_payload() const;
   timespec curr_pkt_timestamp() const;
   timespec start_pkt_timestamp() const;
+  std::string src_ip() const;
+  std::string dst_ip() const;
 
  private:
   struct PCAPHandle;
@@ -39,7 +41,9 @@ class PCAPUDPReader {
   IP_VERSION _curr_frame_type;
   struct timespec _start_pkt_ts = {-1, -1};
   struct timespec _curr_pkt_ts;
-
+  std::string _src_ip;
+  std::string _dst_ip;
+  bool _parse_pcap_payload(const u_char* payload);
   bool _parse_ip4_pkt(const u_char* payload);
   bool _parse_ip6_pkt(const u_char* payload);
   bool _parse_udp_pkt(const u_char* payload);

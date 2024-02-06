@@ -3,7 +3,7 @@
 
 #include <string>
 
-enum class IP_VERSION { IPV4, IPV6 };
+#include "ip_version.h"
 
 class UDPSocket {
  public:
@@ -13,6 +13,8 @@ class UDPSocket {
   bool enable_loopback();
   bool enable_broadcast();
   IP_VERSION ip_version() const;
+  int get_sock_fd();
+  ~UDPSocket();
 
  private:
   int _sock_fd;
